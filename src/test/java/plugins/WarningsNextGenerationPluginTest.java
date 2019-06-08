@@ -107,6 +107,32 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     @Inject
     private DockerContainerHolder<JavaGitContainer> dockerContainer;
 
+    @Test
+    public void should_classify_old_and_new_warnings() {
+        FreeStyleJob job = createFreeStyleJob("build_status_test/build_02");
+        IssuesRecorder recorder =job.addPublisher(IssuesRecorder.class, r-> {
+            r.setTool("PMD");
+            r.setEnabledForFailure(true);
+        });
+        recorder.addQualityGateConfiguration(2, QualityGateType.TOTAL, true);
+        job.save();
+
+        Build build = buildJob(job);
+        assertThat(build.isSuccess()).isFalse();
+        assertThat(build.getResult()).isEqualTo("UNSTABLE");
+
+        reconfigureJobWithResource(job, "build_status_test/build_01");
+        jenkins.restart();
+        build = job.getLastBuild();
+        assertThat(build.isSuccess()).isFalse();
+        assertThat(build.getResult()).isEqualTo("UNSTABLE");
+
+        build = buildJob(job);
+        assertThat(build.isSuccess()).isFalse();
+        assertThat(build.getResult()).isEqualTo("UNSTABLE");
+
+    }
+
     /**
      * Runs a pipeline with checkstyle and pmd. Verifies the expansion of tokens with the token-macro plugin.
      */
