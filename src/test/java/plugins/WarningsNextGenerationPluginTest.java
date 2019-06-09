@@ -8,8 +8,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map.Entry;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
+
+import javax.mail.MessagingException;
+import javax.mail.internet.MimeMessage;
 
 import org.junit.Test;
 
@@ -21,6 +26,7 @@ import org.jenkinsci.test.acceptance.junit.AbstractJUnitTest;
 import org.jenkinsci.test.acceptance.junit.WithCredentials;
 import org.jenkinsci.test.acceptance.junit.WithDocker;
 import org.jenkinsci.test.acceptance.junit.WithPlugins;
+import org.jenkinsci.test.acceptance.plugins.mailer.Mailer;
 import org.jenkinsci.test.acceptance.plugins.maven.MavenInstallation;
 import org.jenkinsci.test.acceptance.plugins.maven.MavenModuleSet;
 import org.jenkinsci.test.acceptance.plugins.ssh_slaves.SshSlaveLauncher;
@@ -48,6 +54,7 @@ import org.jenkinsci.test.acceptance.po.FreeStyleJob;
 import org.jenkinsci.test.acceptance.po.Job;
 import org.jenkinsci.test.acceptance.po.Slave;
 import org.jenkinsci.test.acceptance.po.WorkflowJob;
+import org.jenkinsci.test.acceptance.utils.mail.MailService;
 
 import static org.jenkinsci.test.acceptance.plugins.warnings_ng.Assertions.*;
 
@@ -107,30 +114,61 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     @Inject
     private DockerContainerHolder<JavaGitContainer> dockerContainer;
 
+    @Inject
+    private MailService mail;
+
     @Test
     public void should_classify_old_and_new_warnings() {
-        FreeStyleJob job = createFreeStyleJob("build_status_test/build_02");
+        FreeStyleJob job = createFreeStyleJob("quality_gate/build_01");
         IssuesRecorder recorder =job.addPublisher(IssuesRecorder.class, r-> {
-            r.setTool("PMD");
+            r.setTool("CheckStyle");
             r.setEnabledForFailure(true);
         });
-        recorder.addQualityGateConfiguration(2, QualityGateType.TOTAL, true);
+        recorder.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
         job.save();
 
         Build build = buildJob(job);
         assertThat(build.isSuccess()).isFalse();
         assertThat(build.getResult()).isEqualTo("UNSTABLE");
 
-        reconfigureJobWithResource(job, "build_status_test/build_01");
+        reconfigureJobWithResource(job, "quality_gate/build_02");
         jenkins.restart();
         build = job.getLastBuild();
         assertThat(build.isSuccess()).isFalse();
         assertThat(build.getResult()).isEqualTo("UNSTABLE");
 
         build = buildJob(job);
+        build.openStatusPage();
         assertThat(build.isSuccess()).isFalse();
         assertThat(build.getResult()).isEqualTo("UNSTABLE");
 
+    }
+
+    @Test
+    public void mailTest() throws IOException, MessagingException {
+        mail.setup(jenkins);
+        FreeStyleJob job = createFreeStyleJob("quality_gate/build_01");
+        IssuesRecorder recorder =job.addPublisher(IssuesRecorder.class, r-> {
+            r.setTool("CheckStyle");
+            r.setEnabledForFailure(true);
+        });
+        recorder.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
+
+        Mailer mailer = job.addPublisher(Mailer.class, m -> {
+            m.recipients.set("root@example.com");
+        });
+        job.save();
+
+        Build build = buildJob(job);
+
+
+        List<MimeMessage> mails =  mail.getAllMails();
+
+        mail.assertMail(
+                Pattern.compile("Build failed in Jenkins: .* #1"),
+                "root@example.com",
+                Pattern.compile(job.name)
+        );
     }
 
     /**
