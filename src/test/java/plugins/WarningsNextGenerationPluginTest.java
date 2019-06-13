@@ -118,12 +118,40 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     private MailService mail;
 
     @Test
+    @WithPlugins({"token-macro", "workflow-cps", "pipeline-stage-step", "workflow-durable-task-step", "workflow-basic-steps"})
+    public void should_classify_old_and_new_warnings_pipeline() {
+        WorkflowJob job = jenkins.jobs.create(WorkflowJob.class);
+
+        String checkstyle = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/checkstyle-result.xml");
+        String sourcecode = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/RemoteLauncher.java");
+        job.script.set("node {\n"
+                + checkstyle.replace("\\", "\\\\")
+                + sourcecode.replace("\\", "\\\\")
+                + "recordIssues tool: checkStyle(pattern: '**/checkstyle*')\n"
+                //+ "recordIssues tool: pmdParser(pattern: '**/pmd*')\n"
+                //+ "def total = tm('${ANALYSIS_ISSUES_COUNT}')\n"
+                //+ "echo '[total=' + total + ']' \n"
+                //+ "def checkstyle = tm('${ANALYSIS_ISSUES_COUNT, tool=\"checkstyle\"}')\n"
+                //+ "echo '[checkstyle=' + checkstyle + ']' \n"
+                //+ "def pmd = tm('${ANALYSIS_ISSUES_COUNT, tool=\"pmd\"}')\n"
+                //+ "echo '[pmd=' + pmd + ']' \n"
+                + "}");
+        job.sandbox.check();
+        job.save();
+
+        Build build = buildJob(job);
+        job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/checkstyle-result.xml");
+        build = buildJob(job);
+    }
+
+    @Test
     public void should_classify_old_and_new_warnings() {
         FreeStyleJob job = createFreeStyleJob("quality_gate/build_01");
         IssuesRecorder recorder =job.addPublisher(IssuesRecorder.class, r-> {
             r.setTool("CheckStyle");
             r.setEnabledForFailure(true);
         });
+
         recorder.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
         job.save();
 
