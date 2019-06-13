@@ -127,12 +127,17 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
         recorder.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
         job.save();
 
+        buildJob(job);
         Build build = buildJob(job);
         assertThat(build.isSuccess()).isFalse();
         assertThat(build.getResult()).isEqualTo("UNSTABLE");
 
+        AnalysisSummary summary = new AnalysisSummary(build, CHECKSTYLE_ID);
+        summary.open();
+        //summary.clickLink(CHECKSTYLE_ID + "/resetReference");
+
         reconfigureJobWithResource(job, "quality_gate/build_02");
-        jenkins.restart();
+        //jenkins.restart();
         build = job.getLastBuild();
         assertThat(build.isSuccess()).isFalse();
         assertThat(build.getResult()).isEqualTo("UNSTABLE");
