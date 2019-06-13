@@ -127,7 +127,8 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
         job.script.set("node {\n"
                 + checkstyle.replace("\\", "\\\\")
                 + sourcecode.replace("\\", "\\\\")
-                + "recordIssues tool: checkStyle(pattern: '**/checkstyle*')\n"
+                + "recordIssues tool: checkStyle(pattern: '**/checkstyle*'),\n"
+                + "qualityGates: [[threshold: 1, type: 'TOTAL', unstable: true]]\n"
                 //+ "recordIssues tool: pmdParser(pattern: '**/pmd*')\n"
                 //+ "def total = tm('${ANALYSIS_ISSUES_COUNT}')\n"
                 //+ "echo '[total=' + total + ']' \n"
@@ -146,16 +147,21 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
 
     @Test
     public void should_classify_old_and_new_warnings() {
-        FreeStyleJob job = createFreeStyleJob("quality_gate/build_01");
+        FreeStyleJob job = createFreeStyleJob("quality_gate/build_00");
         IssuesRecorder recorder =job.addPublisher(IssuesRecorder.class, r-> {
             r.setTool("CheckStyle");
             r.setEnabledForFailure(true);
         });
-
-        recorder.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
         job.save();
 
         Build build = buildJob(job);
+
+        reconfigureJobWithResource(job, "quality_gate/build_01");
+        job.configure();
+        recorder.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
+        job.save();
+
+        build = buildJob(job);
         assertThat(build.isSuccess()).isFalse();
         assertThat(build.getResult()).isEqualTo("UNSTABLE");
 
@@ -164,7 +170,7 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
         //summary.clickLink(CHECKSTYLE_ID + "/resetReference");
 
         build.openStatusPage();
-        build.clickButton("Reset quality gate");
+        //build.clickButton("Reset quality gate");
 
         reconfigureJobWithResource(job, "quality_gate/build_02");
         //jenkins.restart();
