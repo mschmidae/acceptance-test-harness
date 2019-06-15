@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 import javax.mail.MessagingException;
@@ -122,27 +123,42 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     public void should_classify_old_and_new_warnings_pipeline() {
         WorkflowJob job = jenkins.jobs.create(WorkflowJob.class);
 
-        String checkstyle = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/checkstyle-result.xml");
-        String sourcecode = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/RemoteLauncher.java");
-        job.script.set("node {\n"
-                + checkstyle.replace("\\", "\\\\")
-                + sourcecode.replace("\\", "\\\\")
+        Function<String, String> pipelineGenerator = fileContent -> "node {\n"
+                + fileContent.replace("\\", "\\\\")
                 + "recordIssues tool: checkStyle(pattern: '**/checkstyle*'),\n"
                 + "qualityGates: [[threshold: 1, type: 'TOTAL', unstable: true]]\n"
-                //+ "recordIssues tool: pmdParser(pattern: '**/pmd*')\n"
-                //+ "def total = tm('${ANALYSIS_ISSUES_COUNT}')\n"
-                //+ "echo '[total=' + total + ']' \n"
-                //+ "def checkstyle = tm('${ANALYSIS_ISSUES_COUNT, tool=\"checkstyle\"}')\n"
-                //+ "echo '[checkstyle=' + checkstyle + ']' \n"
-                //+ "def pmd = tm('${ANALYSIS_ISSUES_COUNT, tool=\"pmd\"}')\n"
-                //+ "echo '[pmd=' + pmd + ']' \n"
-                + "}");
+                + "}";
+
+        String checkstyle = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/checkstyle-result.xml");
+        String sourcecode = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/RemoteLauncher.java");
+        job.configure();
+        job.script.set(pipelineGenerator.apply(checkstyle + sourcecode));
         job.sandbox.check();
         job.save();
 
         Build build = buildJob(job);
-        job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/checkstyle-result.xml");
+
+        checkstyle = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/checkstyle-result.xml");
+        sourcecode = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/RemoteLauncher.java");
+        job.configure();
+        job.script.set(pipelineGenerator.apply(checkstyle + sourcecode));
+        job.sandbox.check();
+        job.save();
+
         build = buildJob(job);
+
+        jenkins.restart();
+
+        checkstyle = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/checkstyle-result.xml");
+        sourcecode = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/RemoteLauncher.java");
+        job.configure();
+        job.script.set(pipelineGenerator.apply(checkstyle + sourcecode));
+        job.sandbox.check();
+        job.save();
+
+        build = buildJob(job);
+
+        System.out.println("ende");
     }
 
     @Test
