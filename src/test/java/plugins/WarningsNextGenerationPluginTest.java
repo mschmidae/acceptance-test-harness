@@ -10,6 +10,7 @@ import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -55,6 +56,8 @@ import org.jenkinsci.test.acceptance.po.FreeStyleJob;
 import org.jenkinsci.test.acceptance.po.Job;
 import org.jenkinsci.test.acceptance.po.Slave;
 import org.jenkinsci.test.acceptance.po.WorkflowJob;
+import org.jenkinsci.test.acceptance.slave.LocalSlaveController;
+import org.jenkinsci.test.acceptance.slave.SlaveController;
 import org.jenkinsci.test.acceptance.utils.mail.MailService;
 
 import static org.jenkinsci.test.acceptance.plugins.warnings_ng.Assertions.*;
@@ -121,9 +124,23 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     @Test
     @WithPlugins({"token-macro", "workflow-cps", "pipeline-stage-step", "workflow-durable-task-step", "workflow-basic-steps"})
     public void should_classify_old_and_new_warnings_pipeline() {
+        SlaveController controller = new LocalSlaveController();
+        Slave agent;
+        try {
+            agent = controller.install(jenkins).get();
+        }
+        catch (InterruptedException | ExecutionException exception) {
+            throw new AssertionError(exception);
+        }
+        agent.configure();
+        agent.setLabels("agent");
+        agent.save();
+        agent.waitUntilOnline();
+        assertThat(agent.isOnline()).isTrue();
+
         WorkflowJob job = jenkins.jobs.create(WorkflowJob.class);
 
-        Function<String, String> pipelineGenerator = fileContent -> "node {\n"
+        Function<String, String> pipelineGenerator = fileContent -> "node('agent') {\n"
                 + fileContent.replace("\\", "\\\\")
                 + "recordIssues tool: checkStyle(pattern: '**/checkstyle*'),\n"
                 + "qualityGates: [[threshold: 1, type: 'TOTAL', unstable: true]]\n"
@@ -163,11 +180,26 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
 
     @Test
     public void should_classify_old_and_new_warnings() {
+        SlaveController controller = new LocalSlaveController();
+        Slave agent;
+        try {
+            agent = controller.install(jenkins).get();
+        }
+        catch (InterruptedException | ExecutionException exception) {
+            throw new AssertionError(exception);
+        }
+        agent.configure();
+        agent.setLabels("agent");
+        agent.save();
+        agent.waitUntilOnline();
+        assertThat(agent.isOnline()).isTrue();
+
         FreeStyleJob job = createFreeStyleJob("quality_gate/build_00");
         IssuesRecorder recorder =job.addPublisher(IssuesRecorder.class, r-> {
             r.setTool("CheckStyle");
             r.setEnabledForFailure(true);
         });
+        job.setLabelExpression(agent.getName());
         job.save();
 
         Build build = buildJob(job);
