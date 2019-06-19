@@ -29,8 +29,10 @@ import org.jenkinsci.test.acceptance.junit.WithCredentials;
 import org.jenkinsci.test.acceptance.junit.WithDocker;
 import org.jenkinsci.test.acceptance.junit.WithPlugins;
 import org.jenkinsci.test.acceptance.plugins.mailer.Mailer;
+import org.jenkinsci.test.acceptance.plugins.matrix_auth.MatrixAuthorizationStrategy;
 import org.jenkinsci.test.acceptance.plugins.maven.MavenInstallation;
 import org.jenkinsci.test.acceptance.plugins.maven.MavenModuleSet;
+import org.jenkinsci.test.acceptance.plugins.mock_security_realm.MockSecurityRealm;
 import org.jenkinsci.test.acceptance.plugins.ssh_slaves.SshSlaveLauncher;
 import org.jenkinsci.test.acceptance.plugins.warnings_ng.AbstractNonDetailsIssuesTableRow;
 import org.jenkinsci.test.acceptance.plugins.warnings_ng.AnalysisResult;
@@ -53,6 +55,7 @@ import org.jenkinsci.test.acceptance.po.Build;
 import org.jenkinsci.test.acceptance.po.Build.Result;
 import org.jenkinsci.test.acceptance.po.DumbSlave;
 import org.jenkinsci.test.acceptance.po.FreeStyleJob;
+import org.jenkinsci.test.acceptance.po.GlobalSecurityConfig;
 import org.jenkinsci.test.acceptance.po.Job;
 import org.jenkinsci.test.acceptance.po.Slave;
 import org.jenkinsci.test.acceptance.po.WorkflowJob;
@@ -180,6 +183,19 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
 
     @Test
     public void should_classify_old_and_new_warnings() {
+        String admin = "admin";
+        String user = "user";
+        GlobalSecurityConfig security = new GlobalSecurityConfig(jenkins);
+        security.open();
+        security.configure(() -> {
+            MockSecurityRealm realm = security.useRealm(MockSecurityRealm.class);
+            realm.configure(admin, user);
+            MatrixAuthorizationStrategy mas = security.useAuthorizationStrategy(MatrixAuthorizationStrategy.class);
+            mas.addUser(admin).admin();
+            mas.addUser(user).developer();
+        });
+        jenkins.login().doLogin(admin);
+
         SlaveController controller = new LocalSlaveController();
         Slave agent;
         try {
@@ -218,7 +234,17 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
         //summary.clickLink(CHECKSTYLE_ID + "/resetReference");
 
         build.openStatusPage();
-        //build.clickButton("Reset quality gate");
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
+        jenkins.logout();
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNull();
+        jenkins.login().doLogin(admin);
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
+        build.clickButton("Reset quality gate");
+
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNull();
 
         reconfigureJobWithResource(job, "quality_gate/build_02");
         //jenkins.restart();
