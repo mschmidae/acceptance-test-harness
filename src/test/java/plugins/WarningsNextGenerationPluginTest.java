@@ -182,21 +182,10 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     }
 
     @Test
+    @WithPlugins("mock-security-realm")
     public void should_classify_old_and_new_warnings() {
-        String admin = "admin";
-        String user = "user";
-        GlobalSecurityConfig security = new GlobalSecurityConfig(jenkins);
-        security.open();
-        security.configure(() -> {
-            MockSecurityRealm realm = security.useRealm(MockSecurityRealm.class);
-            realm.configure(admin, user);
-            MatrixAuthorizationStrategy mas = security.useAuthorizationStrategy(MatrixAuthorizationStrategy.class);
-            mas.addUser(admin).admin();
-            mas.addUser(user).developer();
-        });
-        jenkins.login().doLogin(admin);
 
-        SlaveController controller = new LocalSlaveController();
+                SlaveController controller = new LocalSlaveController();
         Slave agent;
         try {
             agent = controller.install(jenkins).get();
@@ -209,6 +198,26 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
         agent.save();
         agent.waitUntilOnline();
         assertThat(agent.isOnline()).isTrue();
+
+        String admin = "admin";
+        String user = "user";
+        GlobalSecurityConfig security = new GlobalSecurityConfig(jenkins);
+        security.open();
+        MockSecurityRealm realm = security.useRealm(MockSecurityRealm.class);
+        realm.configure(admin);
+        security.save();
+
+        security.open();
+        /*
+        security.configure(() -> {
+            MockSecurityRealm realm = security.useRealm(MockSecurityRealm.class);
+            realm.configure(admin, user);
+            MatrixAuthorizationStrategy mas = security.useAuthorizationStrategy(MatrixAuthorizationStrategy.class);
+            mas.addUser(admin).admin();
+            mas.addUser(user).developer();
+        });
+         */
+        jenkins.login().doLogin(admin);
 
         FreeStyleJob job = createFreeStyleJob("quality_gate/build_00");
         IssuesRecorder recorder =job.addPublisher(IssuesRecorder.class, r-> {
