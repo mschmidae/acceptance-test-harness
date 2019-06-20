@@ -19,6 +19,7 @@ import javax.mail.MessagingException;
 import javax.mail.internet.MimeMessage;
 
 import org.junit.Test;
+import org.openqa.selenium.By;
 
 import com.google.inject.Inject;
 
@@ -28,6 +29,7 @@ import org.jenkinsci.test.acceptance.junit.AbstractJUnitTest;
 import org.jenkinsci.test.acceptance.junit.WithCredentials;
 import org.jenkinsci.test.acceptance.junit.WithDocker;
 import org.jenkinsci.test.acceptance.junit.WithPlugins;
+import org.jenkinsci.test.acceptance.plugins.email_ext.EmailExtPublisher;
 import org.jenkinsci.test.acceptance.plugins.mailer.Mailer;
 import org.jenkinsci.test.acceptance.plugins.matrix_auth.MatrixAuthorizationStrategy;
 import org.jenkinsci.test.acceptance.plugins.maven.MavenInstallation;
@@ -167,7 +169,17 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
 
         build = buildJob(job);
 
+        build.openStatusPage();
+        assertThat(new AnalysisSummary(build, CHECKSTYLE_ID)).hasQualityGateResult(QualityGateResult.UNSTABLE);
+        AnalysisResult analysisResult = openAnalysisResult(build, CHECKSTYLE_ID);
+        DefaultWarningsTableRow firstRow = analysisResult.openIssuesTable().getRowAs(0, DefaultWarningsTableRow.class);
+        assertThat(firstRow).hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
+
         jenkins.restart();
+
+        analysisResult = openAnalysisResult(build, CHECKSTYLE_ID);
+        firstRow = analysisResult.openIssuesTable().getRowAs(0, DefaultWarningsTableRow.class);
+        assertThat(firstRow).hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
 
         checkstyle = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/checkstyle-result.xml");
         sourcecode = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/RemoteLauncher.java");
@@ -283,9 +295,11 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
         });
         recorder.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
 
-        Mailer mailer = job.addPublisher(Mailer.class, m -> {
-            m.recipients.set("root@example.com");
-        });
+        EmailExtPublisher pub = job.addPublisher(EmailExtPublisher.class);
+        pub.ensureAdvancedOpened();
+        System.out.println(pub.getPath());
+        pub.setRecipient("xxx");
+
         job.save();
 
         Build build = buildJob(job);
