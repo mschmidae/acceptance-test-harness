@@ -182,7 +182,8 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     }
 
     @Test
-    @WithPlugins("mock-security-realm")
+    //@WithPlugins("mock-security-realm")
+    @WithPlugins({"mock-security-realm", "matrix-auth@2.3"})
     public void should_classify_old_and_new_warnings() {
 
                 SlaveController controller = new LocalSlaveController();
@@ -202,21 +203,23 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
         String admin = "admin";
         String user = "user";
         GlobalSecurityConfig security = new GlobalSecurityConfig(jenkins);
+        /*
         security.open();
         MockSecurityRealm realm = security.useRealm(MockSecurityRealm.class);
         realm.configure(admin);
         security.save();
-
+*/
         security.open();
-        /*
+
         security.configure(() -> {
             MockSecurityRealm realm = security.useRealm(MockSecurityRealm.class);
             realm.configure(admin, user);
             MatrixAuthorizationStrategy mas = security.useAuthorizationStrategy(MatrixAuthorizationStrategy.class);
             mas.addUser(admin).admin();
-            mas.addUser(user).developer();
+            //mas.addUser(user).developer();
+            mas.addUser(user).readOnly();
         });
-         */
+
         jenkins.login().doLogin(admin);
 
         FreeStyleJob job = createFreeStyleJob("quality_gate/build_00");
@@ -245,8 +248,10 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
         build.openStatusPage();
         assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
         jenkins.logout();
+        jenkins.login().doLogin(user);
         build.openStatusPage();
         assertThat(build.getElement(by.button("Reset quality gate"))).isNull();
+        jenkins.logout();
         jenkins.login().doLogin(admin);
         build.openStatusPage();
         assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
