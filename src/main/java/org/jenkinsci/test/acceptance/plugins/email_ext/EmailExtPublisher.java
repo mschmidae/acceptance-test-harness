@@ -28,8 +28,12 @@ public class EmailExtPublisher extends AbstractStep implements PostBuildStep {
         } catch (NoSuchElementException ex) {
             // some later releases do not preselect recipients
             control("project_triggers/hetero-list-add[recipientProviders]").selectDropdownMenu("Recipient List");
-
         }
+    }
+
+    public void addTrigger(String dropDownMenu) {
+        ensureAdvancedOpened();
+        control("hetero-list-add[project_triggers]").selectDropdownMenu(dropDownMenu);
     }
 
     public void ensureAdvancedOpened() {

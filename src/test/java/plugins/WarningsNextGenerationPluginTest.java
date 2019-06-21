@@ -129,30 +129,53 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     private MailService mail;
 
     @Test
-    @WithPlugins({"mock-security-realm", "matrix-auth@2.3"})
-    public void reset_quality_gate() {
+    public void quality_gate_unstable_no_reset() {
         Slave agent = createLocalAgent();
-        String admin = "admin";
-        String user = "user";
-        configureAdminAndReadOnlyUser(admin, user);
-        jenkins.login().doLogin(admin);
 
+        FreeStyleJob job = createFreeStyleJob("quality_gate/build_00");
+        IssuesRecorder recorder = job.addPublisher(IssuesRecorder.class, r-> {
+            r.setTool("CheckStyle");
+            r.setEnabledForFailure(true);
+            r.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
+        });
+        job.setLabelExpression(agent.getName());
+        job.save();
 
-        jenkins.logout();
-        jenkins.login().doLogin(user);
+        Build build = buildJob(job);
 
-        jenkins.logout();
-        jenkins.login().doLogin(admin);
+        reconfigureJobWithResource(job, "quality_gate/build_01");
+        build = buildJob(job);
+
+        IssuesTable table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
+
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
+
+        jenkins.restart();
+
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
+        table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
+
+        reconfigureJobWithResource(job, "quality_gate/build_02");
+        build = buildJob(job);
+        table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
+        assertThat(table.getRowAs(1, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
+        assertThat(table.getRowAs(2, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
     }
 
     @Test
-    @WithPlugins({"token-macro", "workflow-cps", "pipeline-stage-step", "workflow-durable-task-step", "workflow-basic-steps", "mock-security-realm", "matrix-auth@2.3"})
-    public void reset_quality_gate_pipeline() {
-        Slave agent = createLocalAgent();
-        String admin = "admin";
-        String user = "user";
-        configureAdminAndReadOnlyUser(admin, user);
-        jenkins.login().doLogin(admin);
+    @WithPlugins({"token-macro", "workflow-cps", "pipeline-stage-step", "workflow-durable-task-step", "workflow-basic-steps"})
+    public void quality_gate_unstable_no_reset_pipeline() {
+        createLocalAgent();
 
         WorkflowJob job = jenkins.jobs.create(WorkflowJob.class);
         Function<String, String> pipelineGenerator = fileContent -> "node('agent') {\n"
@@ -169,174 +192,190 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
                 WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/RemoteLauncher.java");
         build = buildJob(job);
 
-        jenkins.logout();
-        jenkins.login().doLogin(user);
+        IssuesTable table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
 
-        jenkins.logout();
-        jenkins.login().doLogin(admin);
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
+
+        jenkins.restart();
+
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
+        table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
+
 
         configurePipelineWithFiles(job, pipelineGenerator, WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/checkstyle-result.xml",
                 WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/RemoteLauncher.java");
         build = buildJob(job);
+        table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
+        assertThat(table.getRowAs(1, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
+        assertThat(table.getRowAs(2, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
     }
 
     @Test
-    @WithPlugins({"token-macro", "workflow-cps", "pipeline-stage-step", "workflow-durable-task-step", "workflow-basic-steps"})
-    public void should_classify_old_and_new_warnings_pipeline() {
-        SlaveController controller = new LocalSlaveController();
-        Slave agent;
-        try {
-            agent = controller.install(jenkins).get();
-        }
-        catch (InterruptedException | ExecutionException exception) {
-            throw new AssertionError(exception);
-        }
-        agent.configure();
-        agent.setLabels("agent");
-        agent.save();
-        agent.waitUntilOnline();
-        assertThat(agent.isOnline()).isTrue();
+    @WithPlugins({"mock-security-realm", "matrix-auth@2.3"})
+    public void reset_quality_gate() {
+        Slave agent = createLocalAgent();
+        String admin = "admin";
+        String user = "user";
+        configureAdminAndReadOnlyUser(admin, user);
+        jenkins.login().doLogin(admin);
+
+        FreeStyleJob job = createFreeStyleJob("quality_gate/build_00");
+        IssuesRecorder recorder = job.addPublisher(IssuesRecorder.class, r-> {
+            r.setTool("CheckStyle");
+            r.setEnabledForFailure(true);
+            r.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
+        });
+        job.setLabelExpression(agent.getName());
+        job.save();
+        Build build = buildJob(job);
+
+        reconfigureJobWithResource(job, "quality_gate/build_01");
+        build = buildJob(job);
+
+        IssuesTable table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
+
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
+        jenkins.logout();
+
+        jenkins.login().doLogin(user);
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNull();
+        jenkins.logout();
+
+        jenkins.login().doLogin(admin);
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
+        build.clickButton("Reset quality gate");
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNull();
+
+        jenkins.visit("restart");
+        jenkins.clickButton("Yes");
+        jenkins.waitForStarted();
+        jenkins.login().doLogin(admin);
+
+        build.openStatusPage();
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNull();
+        table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
+
+        reconfigureJobWithResource(job, "quality_gate/build_02");
+        build = buildJob(job);
+        table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
+        assertThat(table.getRowAs(1, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
+        assertThat(table.getRowAs(2, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(2);
+    }
+
+    @Test
+    @WithPlugins({"token-macro", "workflow-cps", "pipeline-stage-step", "workflow-durable-task-step", "workflow-basic-steps", "mock-security-realm", "matrix-auth@2.3"})
+    public void reset_quality_gate_pipeline() {
+        createLocalAgent();
+        String admin = "admin";
+        String user = "user";
+        configureAdminAndReadOnlyUser(admin, user);
+        jenkins.login().doLogin(admin);
 
         WorkflowJob job = jenkins.jobs.create(WorkflowJob.class);
-
         Function<String, String> pipelineGenerator = fileContent -> "node('agent') {\n"
                 + fileContent.replace("\\", "\\\\")
                 + "recordIssues tool: checkStyle(pattern: '**/checkstyle*'),\n"
                 + "qualityGates: [[threshold: 1, type: 'TOTAL', unstable: true]]\n"
                 + "}";
-
-        String checkstyle = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/checkstyle-result.xml");
-        String sourcecode = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/RemoteLauncher.java");
-        job.configure();
-        job.script.set(pipelineGenerator.apply(checkstyle + sourcecode));
-        job.sandbox.check();
-        job.save();
-
+        configurePipelineWithFiles(job, pipelineGenerator, WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/checkstyle-result.xml",
+                WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/RemoteLauncher.java");
         Build build = buildJob(job);
 
-        checkstyle = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/checkstyle-result.xml");
-        sourcecode = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/RemoteLauncher.java");
-        job.configure();
-        job.script.set(pipelineGenerator.apply(checkstyle + sourcecode));
-        job.sandbox.check();
-        job.save();
-
+        configurePipelineWithFiles(job, pipelineGenerator, WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/checkstyle-result.xml",
+                WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/RemoteLauncher.java");
         build = buildJob(job);
 
-        build.openStatusPage();
-        assertThat(new AnalysisSummary(build, CHECKSTYLE_ID)).hasQualityGateResult(QualityGateResult.UNSTABLE);
-        AnalysisResult analysisResult = openAnalysisResult(build, CHECKSTYLE_ID);
-        DefaultWarningsTableRow firstRow = analysisResult.openIssuesTable().getRowAs(0, DefaultWarningsTableRow.class);
-        assertThat(firstRow).hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
-
-        jenkins.restart();
-
-        analysisResult = openAnalysisResult(build, CHECKSTYLE_ID);
-        firstRow = analysisResult.openIssuesTable().getRowAs(0, DefaultWarningsTableRow.class);
-        assertThat(firstRow).hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
-
-        checkstyle = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/checkstyle-result.xml");
-        sourcecode = job.copyResourceStep(WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/RemoteLauncher.java");
-        job.configure();
-        job.script.set(pipelineGenerator.apply(checkstyle + sourcecode));
-        job.sandbox.check();
-        job.save();
-
-        build = buildJob(job);
-
-        System.out.println("ende");
-    }
-
-    @Test
-    //@WithPlugins("mock-security-realm")
-    @WithPlugins({"mock-security-realm", "matrix-auth@2.3"})
-    public void should_classify_old_and_new_warnings() {
-        Slave agent = createLocalAgent();
-
-        String admin = "admin";
-        String user = "user";
-        configureAdminAndReadOnlyUser(admin, user);
-
-
-        jenkins.login().doLogin(admin);
-
-        FreeStyleJob job = createFreeStyleJob("quality_gate/build_00");
-        IssuesRecorder recorder =job.addPublisher(IssuesRecorder.class, r-> {
-            r.setTool("CheckStyle");
-            r.setEnabledForFailure(true);
-        });
-        job.setLabelExpression(agent.getName());
-        job.save();
-
-        Build build = buildJob(job);
-
-        reconfigureJobWithResource(job, "quality_gate/build_01");
-        job.configure();
-        recorder.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
-        job.save();
-
-        build = buildJob(job);
-        assertThat(build.isSuccess()).isFalse();
-        assertThat(build.getResult()).isEqualTo("UNSTABLE");
-
-        AnalysisSummary summary = new AnalysisSummary(build, CHECKSTYLE_ID);
-        //summary.open();
-        //summary.clickLink(CHECKSTYLE_ID + "/resetReference");
+        IssuesTable table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
 
         build.openStatusPage();
         assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
         jenkins.logout();
+
         jenkins.login().doLogin(user);
         build.openStatusPage();
         assertThat(build.getElement(by.button("Reset quality gate"))).isNull();
         jenkins.logout();
+
         jenkins.login().doLogin(admin);
         build.openStatusPage();
         assertThat(build.getElement(by.button("Reset quality gate"))).isNotNull();
         build.clickButton("Reset quality gate");
-
         build.openStatusPage();
         assertThat(build.getElement(by.button("Reset quality gate"))).isNull();
 
-        reconfigureJobWithResource(job, "quality_gate/build_02");
-        //jenkins.restart();
-        build = job.getLastBuild();
-        assertThat(build.isSuccess()).isFalse();
-        assertThat(build.getResult()).isEqualTo("UNSTABLE");
+        jenkins.visit("restart");
+        jenkins.clickButton("Yes");
+        jenkins.waitForStarted();
+        jenkins.login().doLogin(admin);
 
-        build = buildJob(job);
         build.openStatusPage();
-        assertThat(build.isSuccess()).isFalse();
-        assertThat(build.getResult()).isEqualTo("UNSTABLE");
+        assertThat(build.getElement(by.button("Reset quality gate"))).isNull();
+        table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
 
+
+        configurePipelineWithFiles(job, pipelineGenerator, WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/checkstyle-result.xml",
+                WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/RemoteLauncher.java");
+        build = buildJob(job);
+        table = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable();
+        assertThat(table.getRowAs(0, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
+        assertThat(table.getRowAs(1, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
+        assertThat(table.getRowAs(2, DefaultWarningsTableRow.class))
+                .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(2);
     }
 
     @Test
     public void mailTest() throws IOException, MessagingException {
         mail.setup(jenkins);
         FreeStyleJob job = createFreeStyleJob("quality_gate/build_01");
-        IssuesRecorder recorder =job.addPublisher(IssuesRecorder.class, r-> {
+        IssuesRecorder recorder = job.addPublisher(IssuesRecorder.class, r-> {
             r.setTool("CheckStyle");
             r.setEnabledForFailure(true);
         });
         recorder.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
 
+        String recipient = "xxx@yyy.zzz";
         EmailExtPublisher pub = job.addPublisher(EmailExtPublisher.class);
-        pub.ensureAdvancedOpened();
-        System.out.println(pub.getPath());
-        pub.setRecipient("xxx");
+        pub.setRecipient(recipient);
+        pub.addTrigger("Always");
+        pub.body.set("$DEFAULT_CONTENT\nTotal warnings: ${ANALYSIS_ISSUES_COUNT}\nCheckstyle warnings: ${ANALYSIS_ISSUES_COUNT, tool=\"checkstyle\"}");
 
         job.save();
 
         Build build = buildJob(job);
-
-
-        List<MimeMessage> mails =  mail.getAllMails();
+        int warnings = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable().getSize();
 
         mail.assertMail(
-                Pattern.compile("Build failed in Jenkins: .* #1"),
-                "root@example.com",
-                Pattern.compile(job.name)
+                Pattern.compile(job.name + " - Build # 1 - Unstable"),
+                recipient,
+                Pattern.compile("Total warnings: " + warnings + "\nCheckstyle warnings: " + warnings)
         );
     }
 
