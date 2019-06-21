@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map.Entry;
@@ -14,6 +15,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.mail.MessagingException;
 import javax.mail.internet.MimeMessage;
@@ -127,6 +129,58 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     private MailService mail;
 
     @Test
+    @WithPlugins({"mock-security-realm", "matrix-auth@2.3"})
+    public void reset_quality_gate() {
+        Slave agent = createLocalAgent();
+        String admin = "admin";
+        String user = "user";
+        configureAdminAndReadOnlyUser(admin, user);
+        jenkins.login().doLogin(admin);
+
+
+        jenkins.logout();
+        jenkins.login().doLogin(user);
+
+        jenkins.logout();
+        jenkins.login().doLogin(admin);
+    }
+
+    @Test
+    @WithPlugins({"token-macro", "workflow-cps", "pipeline-stage-step", "workflow-durable-task-step", "workflow-basic-steps", "mock-security-realm", "matrix-auth@2.3"})
+    public void reset_quality_gate_pipeline() {
+        Slave agent = createLocalAgent();
+        String admin = "admin";
+        String user = "user";
+        configureAdminAndReadOnlyUser(admin, user);
+        jenkins.login().doLogin(admin);
+
+        WorkflowJob job = jenkins.jobs.create(WorkflowJob.class);
+        Function<String, String> pipelineGenerator = fileContent -> "node('agent') {\n"
+                + fileContent.replace("\\", "\\\\")
+                + "recordIssues tool: checkStyle(pattern: '**/checkstyle*'),\n"
+                + "qualityGates: [[threshold: 1, type: 'TOTAL', unstable: true]]\n"
+                + "}";
+        configurePipelineWithFiles(job, pipelineGenerator, WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/checkstyle-result.xml",
+                WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/RemoteLauncher.java");
+
+        Build build = buildJob(job);
+
+        configurePipelineWithFiles(job, pipelineGenerator, WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/checkstyle-result.xml",
+                WARNINGS_PLUGIN_PREFIX + "quality_gate/build_01/RemoteLauncher.java");
+        build = buildJob(job);
+
+        jenkins.logout();
+        jenkins.login().doLogin(user);
+
+        jenkins.logout();
+        jenkins.login().doLogin(admin);
+
+        configurePipelineWithFiles(job, pipelineGenerator, WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/checkstyle-result.xml",
+                WARNINGS_PLUGIN_PREFIX + "quality_gate/build_02/RemoteLauncher.java");
+        build = buildJob(job);
+    }
+
+    @Test
     @WithPlugins({"token-macro", "workflow-cps", "pipeline-stage-step", "workflow-durable-task-step", "workflow-basic-steps"})
     public void should_classify_old_and_new_warnings_pipeline() {
         SlaveController controller = new LocalSlaveController();
@@ -197,40 +251,12 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     //@WithPlugins("mock-security-realm")
     @WithPlugins({"mock-security-realm", "matrix-auth@2.3"})
     public void should_classify_old_and_new_warnings() {
-
-                SlaveController controller = new LocalSlaveController();
-        Slave agent;
-        try {
-            agent = controller.install(jenkins).get();
-        }
-        catch (InterruptedException | ExecutionException exception) {
-            throw new AssertionError(exception);
-        }
-        agent.configure();
-        agent.setLabels("agent");
-        agent.save();
-        agent.waitUntilOnline();
-        assertThat(agent.isOnline()).isTrue();
+        Slave agent = createLocalAgent();
 
         String admin = "admin";
         String user = "user";
-        GlobalSecurityConfig security = new GlobalSecurityConfig(jenkins);
-        /*
-        security.open();
-        MockSecurityRealm realm = security.useRealm(MockSecurityRealm.class);
-        realm.configure(admin);
-        security.save();
-*/
-        security.open();
+        configureAdminAndReadOnlyUser(admin, user);
 
-        security.configure(() -> {
-            MockSecurityRealm realm = security.useRealm(MockSecurityRealm.class);
-            realm.configure(admin, user);
-            MatrixAuthorizationStrategy mas = security.useAuthorizationStrategy(MatrixAuthorizationStrategy.class);
-            mas.addUser(admin).admin();
-            //mas.addUser(user).developer();
-            mas.addUser(user).readOnly();
-        });
 
         jenkins.login().doLogin(admin);
 
@@ -1024,6 +1050,45 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
             throw new AssertionError("Can't find resource " + name);
         }
         return Paths.get(resource.toURI());
+    }
+
+    private Slave createLocalAgent() {
+        SlaveController controller = new LocalSlaveController();
+        Slave agent;
+        try {
+            agent = controller.install(jenkins).get();
+        }
+        catch (InterruptedException | ExecutionException exception) {
+            throw new AssertionError(exception);
+        }
+        agent.configure();
+        agent.setLabels("agent");
+        agent.save();
+        agent.waitUntilOnline();
+        assertThat(agent.isOnline()).isTrue();
+        return agent;
+    }
+
+    private GlobalSecurityConfig configureAdminAndReadOnlyUser(final String admin, final String user) {
+        GlobalSecurityConfig security = new GlobalSecurityConfig(jenkins);
+        security.open();
+
+        security.configure(() -> {
+            MockSecurityRealm realm = security.useRealm(MockSecurityRealm.class);
+            realm.configure(admin, user);
+            MatrixAuthorizationStrategy mas = security.useAuthorizationStrategy(MatrixAuthorizationStrategy.class);
+            mas.addUser(admin).admin();
+            mas.addUser(user).readOnly();
+        });
+        return security;
+    }
+
+    private void configurePipelineWithFiles(final WorkflowJob job, final Function<String, String> pipelineGenerator, final String... files) {
+        String filesString = Arrays.stream(files).map(filename -> job.copyResourceStep(filename)).collect(Collectors.joining());
+        job.configure();
+        job.script.set(pipelineGenerator.apply(filesString));
+        job.sandbox.check();
+        job.save();
     }
 }
 
