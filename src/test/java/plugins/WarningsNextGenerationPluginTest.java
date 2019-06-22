@@ -9,7 +9,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
@@ -18,10 +17,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.mail.MessagingException;
-import javax.mail.internet.MimeMessage;
 
 import org.junit.Test;
-import org.openqa.selenium.By;
 
 import com.google.inject.Inject;
 
@@ -32,7 +29,6 @@ import org.jenkinsci.test.acceptance.junit.WithCredentials;
 import org.jenkinsci.test.acceptance.junit.WithDocker;
 import org.jenkinsci.test.acceptance.junit.WithPlugins;
 import org.jenkinsci.test.acceptance.plugins.email_ext.EmailExtPublisher;
-import org.jenkinsci.test.acceptance.plugins.mailer.Mailer;
 import org.jenkinsci.test.acceptance.plugins.matrix_auth.MatrixAuthorizationStrategy;
 import org.jenkinsci.test.acceptance.plugins.maven.MavenInstallation;
 import org.jenkinsci.test.acceptance.plugins.maven.MavenModuleSet;
@@ -128,9 +124,13 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
     @Inject
     private MailService mail;
 
+    /**
+     * Runs a freestyle job with checkstyle and a quality gate. Verifies the classification of the warnings at a second unstable build.
+     */
     @Test
     public void quality_gate_unstable_no_reset() {
         Slave agent = createLocalAgent();
+        mail.setup(jenkins);
 
         FreeStyleJob job = createFreeStyleJob("quality_gate/build_00");
         IssuesRecorder recorder = job.addPublisher(IssuesRecorder.class, r-> {
@@ -139,6 +139,12 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
             r.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
         });
         job.setLabelExpression(agent.getName());
+        String recipient = "xxx@yyy.zzz";
+        EmailExtPublisher pub = job.addPublisher(EmailExtPublisher.class);
+        pub.removefirstTrigger("Failure - Any");
+        pub.addTrigger("Unstable (Test Failures) - Still");
+        pub.setRecipient(recipient);
+        pub.body.set("$DEFAULT_CONTENT\nTotal warnings: ${ANALYSIS_ISSUES_COUNT}\nCheckstyle warnings: ${ANALYSIS_ISSUES_COUNT, tool=\"checkstyle\"}");
         job.save();
 
         Build build = buildJob(job);
@@ -170,18 +176,37 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
                 .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
         assertThat(table.getRowAs(2, DefaultWarningsTableRow.class))
                 .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
+
+        try {
+            mail.assertMail(
+                    Pattern.compile(job.name + " - Build # 3 - Still Unstable"),
+                    recipient,
+                    Pattern.compile("Total warnings: 3\nCheckstyle warnings: 3")
+            );
+        }
+        catch (MessagingException | IOException exception) {
+            throw new AssertionError(exception);
+        }
     }
 
+    /**
+     * Runs a pipeline with checkstyle and a quality gate. Verifies the classification of the warnings at a second unstable build.
+     */
     @Test
     @WithPlugins({"token-macro", "workflow-cps", "pipeline-stage-step", "workflow-durable-task-step", "workflow-basic-steps"})
     public void quality_gate_unstable_no_reset_pipeline() {
         createLocalAgent();
+        mail.setup(jenkins);
+        String recipient = "xxx@yyy.zzz";
 
         WorkflowJob job = jenkins.jobs.create(WorkflowJob.class);
         Function<String, String> pipelineGenerator = fileContent -> "node('agent') {\n"
                 + fileContent.replace("\\", "\\\\")
                 + "recordIssues tool: checkStyle(pattern: '**/checkstyle*'),\n"
                 + "qualityGates: [[threshold: 1, type: 'TOTAL', unstable: true]]\n"
+                + "emailext body: '$DEFAULT_CONTENT\\nTotal warnings: ${ANALYSIS_ISSUES_COUNT}\\nCheckstyle warnings: ${ANALYSIS_ISSUES_COUNT, tool=\"checkstyle\"}', "
+                + "recipientProviders: [[$class: 'DevelopersRecipientProvider'], [$class: 'RequesterRecipientProvider']], "
+                + "subject: '$DEFAULT_SUBJECT', to: '" + recipient + "', replyTo: '$DEFAULT_REPLYTO' \n"
                 + "}";
         configurePipelineWithFiles(job, pipelineGenerator, WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/checkstyle-result.xml",
                 WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/RemoteLauncher.java");
@@ -218,12 +243,27 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
                 .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
         assertThat(table.getRowAs(2, DefaultWarningsTableRow.class))
                 .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(1);
+
+        try {
+            mail.assertMail(
+                    Pattern.compile(job.name + " - Build # 3 - Still Unstable"),
+                    recipient,
+                    Pattern.compile("Total warnings: 3\nCheckstyle warnings: 3")
+            );
+        }
+        catch (MessagingException | IOException exception) {
+            throw new AssertionError(exception);
+        }
     }
 
+    /**
+     * Runs a freestyle job with checkstyle and a quality gate. Verifies the reset of the quality gate and authority to reset.
+     */
     @Test
     @WithPlugins({"mock-security-realm", "matrix-auth@2.3"})
     public void reset_quality_gate() {
         Slave agent = createLocalAgent();
+        mail.setup(jenkins);
         String admin = "admin";
         String user = "user";
         configureAdminAndReadOnlyUser(admin, user);
@@ -236,6 +276,12 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
             r.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
         });
         job.setLabelExpression(agent.getName());
+        String recipient = "xxx@yyy.zzz";
+        EmailExtPublisher pub = job.addPublisher(EmailExtPublisher.class);
+        pub.removefirstTrigger("Failure - Any");
+        pub.addTrigger("Unstable (Test Failures) - Still");
+        pub.setRecipient(recipient);
+        pub.body.set("$DEFAULT_CONTENT\nTotal warnings: ${ANALYSIS_ISSUES_COUNT}\nCheckstyle warnings: ${ANALYSIS_ISSUES_COUNT, tool=\"checkstyle\"}");
         job.save();
         Build build = buildJob(job);
 
@@ -282,12 +328,28 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
                 .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
         assertThat(table.getRowAs(2, DefaultWarningsTableRow.class))
                 .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(2);
+
+        try {
+            mail.assertMail(
+                    Pattern.compile(job.name + " - Build # 3 - Still Unstable"),
+                    recipient,
+                    Pattern.compile("Total warnings: 3\nCheckstyle warnings: 3")
+            );
+        }
+        catch (MessagingException | IOException exception) {
+            throw new AssertionError(exception);
+        }
     }
 
+    /**
+     * Runs a pipeline with checkstyle and a quality gate. Verifies the reset of the quality gate and authority to reset.
+     */
     @Test
     @WithPlugins({"token-macro", "workflow-cps", "pipeline-stage-step", "workflow-durable-task-step", "workflow-basic-steps", "mock-security-realm", "matrix-auth@2.3"})
     public void reset_quality_gate_pipeline() {
         createLocalAgent();
+        mail.setup(jenkins);
+        String recipient = "xxx@yyy.zzz";
         String admin = "admin";
         String user = "user";
         configureAdminAndReadOnlyUser(admin, user);
@@ -298,6 +360,9 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
                 + fileContent.replace("\\", "\\\\")
                 + "recordIssues tool: checkStyle(pattern: '**/checkstyle*'),\n"
                 + "qualityGates: [[threshold: 1, type: 'TOTAL', unstable: true]]\n"
+                + "emailext body: '$DEFAULT_CONTENT\\nTotal warnings: ${ANALYSIS_ISSUES_COUNT}\\nCheckstyle warnings: ${ANALYSIS_ISSUES_COUNT, tool=\"checkstyle\"}', "
+                + "recipientProviders: [[$class: 'DevelopersRecipientProvider'], [$class: 'RequesterRecipientProvider']], "
+                + "subject: '$DEFAULT_SUBJECT', to: '" + recipient + "', replyTo: '$DEFAULT_REPLYTO' \n"
                 + "}";
         configurePipelineWithFiles(job, pipelineGenerator, WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/checkstyle-result.xml",
                 WARNINGS_PLUGIN_PREFIX + "quality_gate/build_00/RemoteLauncher.java");
@@ -349,34 +414,17 @@ public class WarningsNextGenerationPluginTest extends AbstractJUnitTest {
                 .hasFileName("RemoteLauncher.java").hasLineNumber(13).hasAge(1);
         assertThat(table.getRowAs(2, DefaultWarningsTableRow.class))
                 .hasFileName("RemoteLauncher.java").hasLineNumber(5).hasAge(2);
-    }
 
-    @Test
-    public void mailTest() throws IOException, MessagingException {
-        mail.setup(jenkins);
-        FreeStyleJob job = createFreeStyleJob("quality_gate/build_01");
-        IssuesRecorder recorder = job.addPublisher(IssuesRecorder.class, r-> {
-            r.setTool("CheckStyle");
-            r.setEnabledForFailure(true);
-        });
-        recorder.addQualityGateConfiguration(1, QualityGateType.TOTAL, true);
-
-        String recipient = "xxx@yyy.zzz";
-        EmailExtPublisher pub = job.addPublisher(EmailExtPublisher.class);
-        pub.setRecipient(recipient);
-        pub.addTrigger("Always");
-        pub.body.set("$DEFAULT_CONTENT\nTotal warnings: ${ANALYSIS_ISSUES_COUNT}\nCheckstyle warnings: ${ANALYSIS_ISSUES_COUNT, tool=\"checkstyle\"}");
-
-        job.save();
-
-        Build build = buildJob(job);
-        int warnings = openAnalysisResult(build, CHECKSTYLE_ID).openIssuesTable().getSize();
-
-        mail.assertMail(
-                Pattern.compile(job.name + " - Build # 1 - Unstable"),
-                recipient,
-                Pattern.compile("Total warnings: " + warnings + "\nCheckstyle warnings: " + warnings)
-        );
+        try {
+            mail.assertMail(
+                    Pattern.compile(job.name + " - Build # 3 - Still Unstable"),
+                    recipient,
+                    Pattern.compile("Total warnings: 3\nCheckstyle warnings: 3")
+            );
+        }
+        catch (MessagingException | IOException exception) {
+            throw new AssertionError(exception);
+        }
     }
 
     /**
